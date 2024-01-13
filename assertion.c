@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <openssl/buffer.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
@@ -11,7 +10,9 @@
 
 #include "assertion.h"
 
-bool alloc_der(const char* path, unsigned char** der, long* derLength)
+#include "base64util.h"
+
+bool get_der_new(const char* path, unsigned char** der, long* derLength)
 {
     FILE* derFile = fopen(path, "r");
     if (derFile == NULL)
@@ -38,7 +39,7 @@ void sha256_hash(const void* data, size_t dataLength, unsigned char* hash)
     EVP_Digest(data, dataLength, hash, NULL, EVP_sha256(), NULL);
 }
 
-bool alloc_signature_sha256_digest(const unsigned char* der, long derLength, const unsigned char* digest, unsigned char** signature, size_t* sigLength)
+bool get_signature_sha256_new(const unsigned char* der, long derLength, const unsigned char* digest, unsigned char** signature, size_t* sigLength)
 {
     EVP_PKEY* key = d2i_PrivateKey(EVP_PKEY_RSA, NULL, (const unsigned char**)&der, derLength);
     if (key == NULL)
@@ -88,77 +89,10 @@ bool alloc_signature_sha256_digest(const unsigned char* der, long derLength, con
     return true;
 }
 
-void base64_to_url(char* base64String)
-{
-    size_t base64Length = strlen(base64String);
-    // Replace characters.
-    for (int i = 0; i < base64Length; i++)
-    {
-        char* c = &base64String[i];
-        switch (*c)
-        {
-            case '+':
-            *c = '-';
-            break;
-
-            case '/':
-            *c = '_';
-            break;
-        }
-    }
-
-    // Remove padding.
-    for (int i = 1; i < 4; i++)
-    {
-        char* c = &base64String[base64Length - i];
-        if (*c == '=')
-        {
-            *c = '\0';
-        }
-        else
-        {
-            break;
-        }
-    }
-}
-
-char* alloc_base64url(const void* data, int dataLength, size_t* b64Length)
-{
-    BIO* b64 = BIO_new(BIO_f_base64());
-    BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
-
-    BIO* bmem = BIO_new(BIO_s_mem());
-    b64 = BIO_push(b64, bmem);
-
-    BIO_write(b64, data, dataLength);
-    BIO_flush(b64);
-
-    BUF_MEM* bptr = NULL;
-    BIO_get_mem_ptr(b64, &bptr);
-
-    // Add room for null terminator.
-    char* buf = (char*)malloc(bptr->length + 1);
-    memcpy(buf, bptr->data, bptr->length);
-
-    // Add null terminator.
-    buf[bptr->length] = 0;
-
-    BIO_free_all(b64);
-
-    base64_to_url(buf);
-
-    if (b64Length != NULL)
-    {
-        *b64Length = bptr->length + 1;
-    }
-
-    return buf;
-}
-
-char* alloc_assertion_message(const char* clientId, const char* tokenEndpointUri)
+char* get_assertion_message_new(const char* clientId, const char* tokenEndpointUri)
 {
     const char* header = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
-    char* headerB64 = alloc_base64url(header, strlen(header), NULL);
+    char* headerB64 = convert_to_base64url_new(header, strlen(header), NULL);
 
     uuid_t uuid;
     uuid_generate(uuid);
@@ -174,7 +108,7 @@ char* alloc_assertion_message(const char* clientId, const char* tokenEndpointUri
 
     char payloadBuffer[512];
     sprintf(payloadBuffer, "{\"sub\":\"%s\",\"jti\":\"%s\",\"nbf\":%ld,\"exp\":%ld,\"iss\":\"%s\",\"aud\":\"%s\"}", clientId, jti, notBefore, expiresAt, clientId, tokenEndpointUri);
-    char* payloadB64 = alloc_base64url(payloadBuffer, strlen(payloadBuffer), NULL);
+    char* payloadB64 = convert_to_base64url_new(payloadBuffer, strlen(payloadBuffer), NULL);
 
     char* message = (char*)malloc(strlen(headerB64) + strlen(payloadB64) + 1);
     sprintf(message, "%s.%s", headerB64, payloadB64);
@@ -185,30 +119,30 @@ char* alloc_assertion_message(const char* clientId, const char* tokenEndpointUri
     return message;
 }
 
-bool alloc_assertion(const char* derPath, const char* clientId, const char* tokenEndpointUri, char** assertion)
+bool get_assertion_new(const char* derPath, const char* clientId, const char* tokenEndpointUri, char** assertion)
 {
     unsigned char* der = NULL;
     long derLength;
-    if (!alloc_der(derPath, &der, &derLength))
+    if (!get_der_new(derPath, &der, &derLength))
     {
         return false;
     }
 
-    char* message = alloc_assertion_message(clientId, tokenEndpointUri);
+    char* message = get_assertion_message_new(clientId, tokenEndpointUri);
     
     unsigned char digest[SHA256_DIGEST_LENGTH];
     sha256_hash(message, strlen(message), digest);
     
     unsigned char* signature = NULL;
     size_t sigLength;
-    if (!alloc_signature_sha256_digest(der, derLength, digest, &signature, &sigLength))
+    if (!get_signature_sha256_new(der, derLength, digest, &signature, &sigLength))
     {
         return false;
     }
 
     free(der);
 
-    char* signatureB64 = alloc_base64url(signature, sigLength, NULL);
+    char* signatureB64 = convert_to_base64url_new(signature, sigLength, NULL);
 
     OPENSSL_free(signature);
 
