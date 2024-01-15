@@ -41,16 +41,15 @@ void base64_to_url(char* base64String)
     }
 }
 
-char* url_to_base64_new(const char* base64UrlString)
+char* base64urlbin_to_base64string_new(const char* base64UrlString, size_t length)
 {
-    size_t base64UrlLength = strlen(base64UrlString);
-    size_t base64Length = base64UrlLength + base64UrlLength % 4;
+    size_t base64Length = length + length % 4;
 
     char* buffer = (char*)malloc(base64Length + 1);
-    memcpy(buffer, base64UrlString, base64UrlLength);
+    memcpy(buffer, base64UrlString, length);
     
     // Replace characters.
-    for (int i = 0; i < base64UrlLength; i++)
+    for (int i = 0; i < length; i++)
     {
         char* c = &buffer[i];
         switch (*c)
@@ -66,14 +65,20 @@ char* url_to_base64_new(const char* base64UrlString)
     }
 
     // Add padding.
-    for (int i = 0; i < base64UrlLength % 4; i++)
+    for (int i = 0; i < length % 4; i++)
     {
-        buffer[base64UrlLength + i] = '=';
+        buffer[length + i] = '=';
     }
 
     buffer[base64Length] = '\0';
 
     return buffer;
+}
+
+char* base64urlstring_to_base64urlstring_new(const char* base64UrlString)
+{
+    size_t base64UrlLength = strlen(base64UrlString);
+    return base64urlbin_to_base64string_new(base64UrlString, base64UrlLength);
 }
 
 char* convert_to_base64url_new(const void* data, int dataLength, size_t* b64Length)
@@ -109,22 +114,48 @@ char* convert_to_base64url_new(const void* data, int dataLength, size_t* b64Leng
     return buf;
 }
 
-char* convert_from_base64url_new(const char* base64Url, int* length)
+char* base64urlbin_to_bin_new(const char* base64Url, int inLength, int* outLength)
 {
     BIO *b64 = BIO_new(BIO_f_base64());
     BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
 
-    size_t b64UrlLength = strlen(base64Url);
-    char* base64String = url_to_base64_new(base64Url);
+    char* base64String = base64urlbin_to_base64string_new(base64Url, inLength);
     BIO* mem = BIO_new_mem_buf(base64String, -1);
     BIO_push(b64, mem);
 
-    *length = BIO_get_mem_data(mem, NULL);
-    char* outputBuffer = (char*)malloc(*length);
-    *length = BIO_read(b64, outputBuffer, *length);
+    *outLength = BIO_get_mem_data(mem, NULL);
+    char* outputBuffer = (char*)malloc(*outLength);
+    *outLength = BIO_read(b64, outputBuffer, *outLength);
 
     BIO_free_all(b64);
     free(base64String);
 
     return outputBuffer;
+}
+
+char* base64urlbin_to_string_new(const char* base64Url, int inLength)
+{
+    BIO *b64 = BIO_new(BIO_f_base64());
+    BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+
+    char* base64String = base64urlbin_to_base64string_new(base64Url, inLength);
+    BIO* mem = BIO_new_mem_buf(base64String, -1);
+    BIO_push(b64, mem);
+
+    int outLength = BIO_get_mem_data(mem, NULL);
+    char* outputBuffer = (char*)malloc(outLength + 1);
+    int memLength = BIO_read(b64, outputBuffer, outLength);
+
+    outputBuffer[memLength] = '\0';
+
+    BIO_free_all(b64);
+    free(base64String);
+
+    return outputBuffer;
+}
+
+char* base64urlstring_to_bin_new(const char* base64Url, int* outLength)
+{
+    int inLength = strlen(base64Url);
+    return base64urlbin_to_bin_new(base64Url, inLength, outLength);
 }
