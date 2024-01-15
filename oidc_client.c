@@ -323,6 +323,7 @@ bool get_validated_id_token_new(const char* jwksUri, const char* idTokenBase64Ur
 
     char* idTokenPayloadJson = base64urlbin_to_string_new((const char*)tokenPayloadStart, tokenPayloadLength);
 
+    // JAS: NOTE: Older versions of Keycloak did not use GUIDs for User IDs.
     struct json_object* root = json_tokener_parse(idTokenPayloadJson);
     struct json_object* subObj = json_object_object_get(root, "sub");
     const char* subString = json_object_get_string(subObj);

@@ -1,13 +1,16 @@
 #include <stdbool.h>
 
+#include <sys/types.h>
+
 #include <uuid/uuid.h>
 
 #include <openssl/evp.h>
 
 struct id_token
 {
-    uuid_t subject;
     const char* userName;
+    uuid_t subject;
+    gid_t groupId; // JAS: TODO: Implement this!
     const char* displayName;
     const char* homePath;
 };
