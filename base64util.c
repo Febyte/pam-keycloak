@@ -81,7 +81,7 @@ char* base64urlstring_to_base64urlstring_new(const char* base64UrlString)
     return base64urlbin_to_base64string_new(base64UrlString, base64UrlLength);
 }
 
-char* convert_to_base64url_new(const void* data, int dataLength, size_t* b64Length)
+char* bin_to_base64urlstring_new(const void* data, int dataLength)
 {
     BIO* b64 = BIO_new(BIO_f_base64());
     BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
@@ -100,18 +100,19 @@ char* convert_to_base64url_new(const void* data, int dataLength, size_t* b64Leng
     memcpy(buf, bptr->data, bptr->length);
 
     // Add null terminator.
-    buf[bptr->length] = 0;
+    buf[bptr->length] = '\0';
 
     BIO_free_all(b64);
 
     base64_to_url(buf);
 
-    if (b64Length != NULL)
-    {
-        *b64Length = bptr->length + 1;
-    }
-
     return buf;
+}
+
+char* string_to_base64urlstring_new(const char* dataString)
+{
+    int dataLength = strlen(dataString);
+    return bin_to_base64urlstring_new(dataString, dataLength);
 }
 
 char* base64urlbin_to_bin_new(const char* base64Url, int inLength, int* outLength)

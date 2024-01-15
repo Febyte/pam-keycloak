@@ -92,7 +92,7 @@ bool get_signature_sha256_new(const unsigned char* der, long derLength, const un
 char* get_assertion_message_new(const char* clientId, const char* tokenEndpointUri)
 {
     const char* header = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
-    char* headerB64 = convert_to_base64url_new(header, strlen(header), NULL);
+    char* headerB64 = string_to_base64urlstring_new(header);
 
     uuid_t uuid;
     uuid_generate(uuid);
@@ -108,7 +108,7 @@ char* get_assertion_message_new(const char* clientId, const char* tokenEndpointU
 
     char payloadBuffer[512];
     sprintf(payloadBuffer, "{\"sub\":\"%s\",\"jti\":\"%s\",\"nbf\":%ld,\"exp\":%ld,\"iss\":\"%s\",\"aud\":\"%s\"}", clientId, jti, notBefore, expiresAt, clientId, tokenEndpointUri);
-    char* payloadB64 = convert_to_base64url_new(payloadBuffer, strlen(payloadBuffer), NULL);
+    char* payloadB64 = string_to_base64urlstring_new(payloadBuffer);
 
     char* message = (char*)malloc(strlen(headerB64) + strlen(payloadB64) + 1);
     sprintf(message, "%s.%s", headerB64, payloadB64);
@@ -142,7 +142,7 @@ bool get_assertion_new(const char* derPath, const char* clientId, const char* to
 
     free(der);
 
-    char* signatureB64 = convert_to_base64url_new(signature, sigLength, NULL);
+    char* signatureB64 = bin_to_base64urlstring_new(signature, sigLength);
 
     OPENSSL_free(signature);
 
