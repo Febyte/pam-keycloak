@@ -21,9 +21,15 @@ bool get_oidc_uris(const char* oidcConfigUri, char** tokenEndpointUri, char** jw
 
 bool get_oidc_rs256_key(const char* jwksUri, const char* kid, EVP_PKEY** publicKey);
 
+bool get_service_account_access_token_new(const char* tokenEndpointUri, const char* clientId, const char* assertion, char** accessToken);
+
 bool get_ropc_id_token_new(const char* tokenEndpointUri, const char* clientId, const char* assertion, const char* username, const char* password, char** idToken);
 
+bool validate_access_token(const char* jwksUri, const char* accessTokenBase64Url);
+
 bool get_validated_id_token_new(const char* jwksUri, const char* idTokenBase64Url, struct id_token* tokenOut);
+
+bool get_username_by_id_new(const char* userEndpointUri, const char* accessToken, uuid_t userId, char** userNameOut);
 
 void id_token_free(struct id_token token);
 

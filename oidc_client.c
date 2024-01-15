@@ -184,7 +184,7 @@ bool get_oidc_rs256_key(const char* jwksUri, const char* kid, EVP_PKEY** publicK
     return foundKid;
 }
 
-bool get_ropc_id_token_new(const char* tokenEndpointUri, const char* clientId, const char* assertion, const char* username, const char* password, char** idToken)
+bool get_token_new(const char* tokenEndpointUri, const char* tokenField, const char* payload, char** token)
 {
     CURL* curl = curl_easy_init();
     if(curl == NULL)
@@ -203,34 +203,146 @@ bool get_ropc_id_token_new(const char* tokenEndpointUri, const char* clientId, c
     struct curl_slist* headers = curl_slist_append(NULL, "Content-Type: application/x-www-form-urlencoded");
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     
-    char* payload = (char*)malloc(2048);
-    sprintf(payload, "client_id=%s&grant_type=password&client_assertion_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Aclient-assertion-type%%3Ajwt-bearer&client_assertion=%s&username=%s&password=%s&scope=openid", clientId, assertion, username, password);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
     
     CURLcode res = curl_easy_perform(curl);
-    free(payload);
 
     if (res != CURLE_OK)
     {
         return false;
     }
 
-    // Parse ID Token
+    // Parse Token
 
     struct json_object* tokenRoot = json_tokener_parse(chunk.response);
-    struct json_object* idTokenObject = json_object_object_get(tokenRoot, "id_token");
+    struct json_object* tokenObject = json_object_object_get(tokenRoot, tokenField);
 
-    const char* idTokenStr = json_object_get_string(idTokenObject);
-    int idTokenLength = json_object_get_string_len(idTokenObject);
+    const char* tokenStr = json_object_get_string(tokenObject);
+    int tokenLength = json_object_get_string_len(tokenObject);
 
-    *idToken = (char*)malloc(idTokenLength);
-    memcpy(*idToken, idTokenStr, idTokenLength);
+    *token = (char*)malloc(tokenLength);
+    memcpy(*token, tokenStr, tokenLength);
 
     json_object_put(tokenRoot);
 
     curl_easy_cleanup(curl);
 
     return true;
+}
+
+bool get_service_account_access_token_new(const char* tokenEndpointUri, const char* clientId, const char* assertion, char** accessToken)
+{
+    char* payload = (char*)malloc(2048);
+    sprintf(payload, "client_id=%s&grant_type=client_credentials&client_assertion_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Aclient-assertion-type%%3Ajwt-bearer&client_assertion=%s", clientId, assertion);
+    
+    bool result = get_token_new(tokenEndpointUri, "access_token", payload, accessToken);
+    free(payload);
+
+    return result;
+}
+
+bool get_ropc_id_token_new(const char* tokenEndpointUri, const char* clientId, const char* assertion, const char* username, const char* password, char** idToken)
+{
+    char* payload = (char*)malloc(2048);
+    sprintf(payload, "client_id=%s&grant_type=password&client_assertion_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Aclient-assertion-type%%3Ajwt-bearer&client_assertion=%s&username=%s&password=%s&scope=openid", clientId, assertion, username, password);
+
+    bool result = get_token_new(tokenEndpointUri, "id_token", payload, idToken);
+    free(payload);
+
+    return result;
+}
+
+bool get_public_key_from_jwt_new(const char* jwksUri, const char* jwtHeaderBase64UrlBin, int length, EVP_PKEY** publicKey)
+{
+    char* idTokenHeaderJson = base64urlbin_to_string_new(jwtHeaderBase64UrlBin, length);
+    struct json_object* idTokenHeaderRoot = json_tokener_parse(idTokenHeaderJson);
+
+    struct json_object* algObj = json_object_object_get(idTokenHeaderRoot, "alg");
+    const char* alg = json_object_get_string(algObj);
+
+    // JAS: TODO: Add support for other algorithms.
+    if (strcmp(alg, "RS256"))
+    {
+        return false;
+    }
+
+    struct json_object* kidObj = json_object_object_get(idTokenHeaderRoot, "kid");
+    const char* kid = json_object_get_string(kidObj);
+
+    bool getPublicKeyResult = get_oidc_rs256_key(jwksUri, kid, publicKey);
+    
+    json_object_put(idTokenHeaderRoot);
+    free(idTokenHeaderJson);
+
+    if (!getPublicKeyResult)
+    {
+        EVP_PKEY_free(*publicKey);
+        return false;
+    }
+
+    return true;
+}
+
+bool validate_signature(const char* idTokenBase64UrlBin, int messageLength, const char* signatureBase64UrlBin, int signatureLength, EVP_PKEY* publicKey)
+{
+    EVP_MD_CTX* context = EVP_MD_CTX_new();
+    if (context == NULL)
+    {
+        return false;
+    }
+
+    if (!EVP_DigestVerifyInit(context, NULL, EVP_sha256(), NULL, publicKey))
+    {
+        EVP_MD_CTX_free(context);
+        return false;
+    }
+
+    // Message: "{tokenHeader}.{tokenPayload}"
+    if (!EVP_DigestVerifyUpdate(context, idTokenBase64UrlBin, messageLength))
+    {
+        EVP_MD_CTX_free(context);
+        return false;
+    }
+
+    int tokenSignatureBinLength = 0;
+    char* tokenSignatureBin = base64urlbin_to_bin_new(signatureBase64UrlBin, signatureLength, &tokenSignatureBinLength);
+
+    int verificationResult = EVP_DigestVerifyFinal(context, (const unsigned char*)tokenSignatureBin, tokenSignatureBinLength);
+
+    EVP_MD_CTX_free(context);
+    free(tokenSignatureBin);
+
+    return verificationResult;
+}
+
+bool validate_access_token(const char* jwksUri, const char* accessTokenBase64Url)
+{
+    //
+    // Parse the Access Token.
+    //
+
+    intptr_t tokenHeaderEndMarker = (intptr_t)strchr(accessTokenBase64Url, '.');
+    uint32_t tokenHeaderLength = (uint32_t)(tokenHeaderEndMarker - (intptr_t)accessTokenBase64Url);
+
+    intptr_t tokenPayloadStart = tokenHeaderEndMarker + 1;
+    intptr_t tokenPayloadEndMarker = (intptr_t)strchr((const char*)tokenPayloadStart, '.');
+    uint32_t tokenPayloadLength = (uint32_t)(tokenPayloadEndMarker - tokenPayloadStart);
+
+    intptr_t tokenSignatureStart = tokenPayloadEndMarker + 1;
+    intptr_t tokenSignatureEnd = (intptr_t)accessTokenBase64Url + strlen(accessTokenBase64Url);
+    uint32_t tokenSignatureLength = (uint32_t)(tokenSignatureEnd - tokenSignatureStart);
+
+    EVP_PKEY* publicKey = NULL;
+    if (!get_public_key_from_jwt_new(jwksUri, accessTokenBase64Url, tokenHeaderLength, &publicKey))
+    {
+        return false;
+    }
+
+    // Validate the signature against the public key.
+    bool validationStatus = validate_signature(accessTokenBase64Url, tokenHeaderLength + tokenPayloadLength + 1, (const char*)tokenSignatureStart, tokenSignatureLength, publicKey);
+    EVP_PKEY_free(publicKey);
+
+    return validationStatus;
 }
 
 bool get_validated_id_token_new(const char* jwksUri, const char* idTokenBase64Url, struct id_token* tokenOut)
@@ -253,72 +365,17 @@ bool get_validated_id_token_new(const char* jwksUri, const char* idTokenBase64Ur
     // Deserialize the id_token header.
 
     EVP_PKEY* publicKey = NULL;
+    if (!get_public_key_from_jwt_new(jwksUri, idTokenBase64Url, tokenHeaderLength, &publicKey))
     {
-        char* idTokenHeaderJson = base64urlbin_to_string_new(idTokenBase64Url, tokenHeaderLength);
-        struct json_object* idTokenHeaderRoot = json_tokener_parse(idTokenHeaderJson);
-
-        struct json_object* algObj = json_object_object_get(idTokenHeaderRoot, "alg");
-        const char* alg = json_object_get_string(algObj);
-
-        // JAS: TODO: Add support for other algorithms.
-        if (strcmp(alg, "RS256"))
-        {
-            return false;
-        }
-
-        struct json_object* kidObj = json_object_object_get(idTokenHeaderRoot, "kid");
-        const char* kid = json_object_get_string(kidObj);
-
-        bool getPublicKeyResult = get_oidc_rs256_key(jwksUri, kid, &publicKey);
-        
-        json_object_put(idTokenHeaderRoot);
-        free(idTokenHeaderJson);
-
-        if (!getPublicKeyResult)
-        {
-            EVP_PKEY_free(publicKey);
-            return false;
-        }
+        return false;
     }
 
     // Validate the signature against the public key.
-
+    bool validationStatus = validate_signature(idTokenBase64Url, tokenHeaderLength + tokenPayloadLength + 1, (const char*)tokenSignatureStart, tokenSignatureLength, publicKey);
+    EVP_PKEY_free(publicKey);
+    if (!validationStatus)
     {
-        EVP_MD_CTX* context = EVP_MD_CTX_new();
-        if (context == NULL)
-        {
-            EVP_PKEY_free(publicKey);
-            return false;
-        }
-
-        if (!EVP_DigestVerifyInit(context, NULL, EVP_sha256(), NULL, publicKey))
-        {
-            EVP_MD_CTX_free(context);
-            EVP_PKEY_free(publicKey);
-            return false;
-        }
-
-        // Message: "{tokenHeader}.{tokenPayload}"
-        if (!EVP_DigestVerifyUpdate(context, idTokenBase64Url, tokenHeaderLength + tokenPayloadLength + 1))
-        {
-            EVP_MD_CTX_free(context);
-            EVP_PKEY_free(publicKey);
-            return false;
-        }
-
-        int tokenSignatureBinLength = 0;
-        char* tokenSignatureBin = base64urlbin_to_bin_new((const char*)tokenSignatureStart, (int)tokenSignatureLength, &tokenSignatureBinLength);
-
-        int verificationResult = EVP_DigestVerifyFinal(context, (const unsigned char*)tokenSignatureBin, tokenSignatureBinLength);
-
-        EVP_MD_CTX_free(context);
-        free(tokenSignatureBin);
-        EVP_PKEY_free(publicKey);
-
-        if (!verificationResult)
-        {
-            return false;
-        }
+        return false;
     }
 
     char* idTokenPayloadJson = base64urlbin_to_string_new((const char*)tokenPayloadStart, tokenPayloadLength);
@@ -379,6 +436,70 @@ bool get_validated_id_token_new(const char* jwksUri, const char* idTokenBase64Ur
 
     json_object_put(root);
     free(idTokenPayloadJson);
+
+    return false;
+}
+
+bool get_username_by_id_new(const char* userEndpointUri, const char* accessToken, uuid_t userId, char** userNameOut)
+{
+    CURL* curl = curl_easy_init();
+    if(curl == NULL)
+    {
+        return false;
+    }
+
+    char userIdString[37];
+    uuid_unparse(userId, userIdString);
+
+    // Allocate room for {userEndpointUri}+/{guid}
+    char* userQueryUri = (char*)malloc(strlen(userEndpointUri) + 38);
+    sprintf(userQueryUri, "%s/%s", userEndpointUri, userIdString);
+
+    curl_easy_setopt(curl, CURLOPT_URL, userQueryUri);
+    
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+
+    struct memory chunk = {};
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+
+    char authorizationHeader[2048];
+    sprintf(authorizationHeader, "Authorization: Bearer %s", accessToken);
+    struct curl_slist* headers = curl_slist_append(NULL, authorizationHeader);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    
+    CURLcode res = curl_easy_perform(curl);
+
+    int32_t responseCode = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
+
+    free(userQueryUri);
+
+    if (res != CURLE_OK)
+    {
+        curl_easy_cleanup(curl);
+        return false;
+    }
+
+    // HTTP OK
+    if (responseCode == 200)
+    {
+        // Parse Token
+
+        struct json_object* tokenRoot = json_tokener_parse(chunk.response);
+        struct json_object* userNameObject = json_object_object_get(tokenRoot, "username");
+
+        const char* userNameStr = json_object_get_string(userNameObject);
+        int userNameLength = json_object_get_string_len(userNameObject);
+
+        *userNameOut = (char*)malloc(userNameLength + 1);
+        strcpy(*userNameOut, userNameStr);
+
+        json_object_put(tokenRoot);
+
+        curl_easy_cleanup(curl);
+
+        return true;
+    }
 
     return false;
 }

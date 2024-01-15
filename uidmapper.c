@@ -101,3 +101,38 @@ bool map_uuid_to_uid(const char* mapperPath, uuid_t uuid, uid_t* uidOut)
 
     return true;
 }
+
+bool map_uid_to_uuid(const char* mapperPath, uid_t uid, uuid_t uuidOut)
+{
+    FILE* mappingFile = fopen(mapperPath, "r");
+    if (mappingFile == NULL)
+    {
+        return false;
+    }
+
+    while (true)
+    {
+        char guidString[37];
+        uid_t foundUid;
+
+        int elementsScanned = fscanf(mappingFile, "%s %u\n", guidString, &foundUid);
+        if (elementsScanned == 2)
+        {
+            if (uid == foundUid)
+            {
+                if (!uuid_parse(guidString, uuidOut))
+                {
+                    fclose(mappingFile);
+                    return true;
+                }
+            }
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    fclose(mappingFile);
+    return false;
+}
