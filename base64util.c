@@ -6,7 +6,7 @@
 
 #include "base64util.h"
 
-void base64_to_url(char* base64String)
+void base64string_to_base64urlstring(char* base64String)
 {
     size_t base64Length = strlen(base64String);
 
@@ -104,7 +104,7 @@ char* bin_to_base64urlstring_new(const void* data, int dataLength)
 
     BIO_free_all(b64);
 
-    base64_to_url(buf);
+    base64string_to_base64urlstring(buf);
 
     return buf;
 }

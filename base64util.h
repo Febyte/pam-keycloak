@@ -1,7 +1,5 @@
 #include <stddef.h>
 
-void base64_to_url(char* base64String);
-
 char* bin_to_base64urlstring_new(const void* data, int dataLength);
 
 char* string_to_base64urlstring_new(const char* dataString);
