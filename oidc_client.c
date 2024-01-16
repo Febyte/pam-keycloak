@@ -200,6 +200,13 @@ bool get_token_new(const char* tokenEndpointUri, const char* tokenField, const c
         return false;
     }
 
+    int32_t responseCode = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
+    if (responseCode != 200)
+    {
+        return false;
+    }
+
     // Parse Token
 
     struct json_object* tokenRoot = json_tokener_parse(chunk.response);

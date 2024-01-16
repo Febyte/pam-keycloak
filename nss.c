@@ -74,7 +74,7 @@ enum nss_status _nss_kcoidc_getpwnam_r(const char* username, struct passwd* resu
                     bufPos += strlen(user.homePath) + 1;
 
                     result->pw_shell = (char*)bufPos;
-                    strcpy(result->pw_shell, "/usr/sbin/nologin");
+                    strcpy(result->pw_shell, "/bin/false");
 
                     id_token_free(user);
 
@@ -147,7 +147,7 @@ enum nss_status _nss_kcoidc_getpwuid_r(uid_t uid, struct passwd* result, char* b
                         bufPos += strlen(user.homePath) + 1;
 
                         result->pw_shell = (char*)bufPos;
-                        strcpy(result->pw_shell, "/usr/sbin/nologin");
+                        strcpy(result->pw_shell, "/bin/false");
 
                         id_token_free(user);
 
