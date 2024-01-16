@@ -34,7 +34,7 @@ enum oidc_client_status get_oidc_uris(const char* oidcConfigUri, char** tokenEnd
 
 enum oidc_client_status get_oidc_rs256_key(const char* jwksUri, const char* kid, EVP_PKEY** publicKey);
 
-bool get_service_account_access_token_new(const char* tokenEndpointUri, const char* clientId, const char* assertion, char** accessToken);
+bool get_service_account_access_token_new(const char* tokenCachePath, const char* tokenEndpointUri, const char* clientId, const char* assertion, char** accessToken);
 
 bool get_ropc_id_token_new(const char* tokenEndpointUri, const char* clientId, const char* assertion, const char* username, const char* password, char** idToken);
 

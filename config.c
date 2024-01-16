@@ -28,6 +28,10 @@ bool read_config(const char* path, struct config* configOut)
         {
             strcpy(configOut->derPath, value);
         }
+        else if (!strcmp(key, "token_cache_path"))
+        {
+            strcpy(configOut->tokenCachePath, value);
+        }
         else if (!strcmp(key, "keycloak_base_uri"))
         {
             strcpy(configOut->kcBaseUri, value);

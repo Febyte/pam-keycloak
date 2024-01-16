@@ -1,4 +1,6 @@
 #include <memory.h>
+#include <stdio.h>
+#include <unistd.h>
 
 #include <curl/curl.h>
 #include <json-c/json.h>
@@ -225,12 +227,75 @@ bool get_token_new(const char* tokenEndpointUri, const char* tokenField, const c
     return true;
 }
 
-bool get_service_account_access_token_new(const char* tokenEndpointUri, const char* clientId, const char* assertion, char** accessToken)
+bool get_service_account_access_token_new(const char* tokenCachePath, const char* tokenEndpointUri, const char* clientId, const char* assertion, char** accessToken)
 {
     char* payload = (char*)malloc(2048);
     sprintf(payload, "client_id=%s&grant_type=client_credentials&client_assertion_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Aclient-assertion-type%%3Ajwt-bearer&client_assertion=%s", clientId, assertion);
+
+    bool result = false;
+
+    // Check the cache.
+    FILE* tokenCache = fopen(tokenCachePath, "r+");
+
+    char cachedToken[4096] = {};
+    //int numElements = fscanf(tokenCache, "%s", cachedToken);
+    if (fgets(cachedToken, 4096, tokenCache) == NULL)
+    {
+        result = get_token_new(tokenEndpointUri, "access_token", payload, accessToken);
+        fputs(*accessToken, tokenCache);
+
+        #ifdef KC_VERBOSE
+        printf("get_service_account_access_token_new: Cache is empty. %s token to put in cache.\n", result ? "Acquired" : "Failed to acquire");
+        #endif
+    }
+    else
+    {
+        #ifdef KC_VERBOSE
+        //printf("get_service_account_access_token_new: Cached token:\n%s\n", cachedToken);
+        #endif
+
+        intptr_t tokenHeaderEndMarker = (intptr_t)strchr(cachedToken, '.');
+        uint32_t tokenHeaderLength = (uint32_t)(tokenHeaderEndMarker - (intptr_t)cachedToken);
+
+        intptr_t tokenPayloadStart = tokenHeaderEndMarker + 1;
+        intptr_t tokenPayloadEndMarker = (intptr_t)strchr((const char*)tokenPayloadStart, '.');
+        uint32_t tokenPayloadLength = (uint32_t)(tokenPayloadEndMarker - tokenPayloadStart);
+
+        char* tokenJson = base64urlbin_to_string_new((const char*)tokenPayloadStart, tokenPayloadLength);
+        struct json_object* tokenRoot = json_tokener_parse(tokenJson);
+        struct json_object* expObj = json_object_object_get(tokenRoot, "exp");
+        int64_t exp = json_object_get_int64(expObj);
+        int64_t currentTime = (int64_t)time(NULL);
+        json_object_put(tokenRoot);
+        free(tokenJson);
+
+        // Check if cached token is still good.
+        if (exp > currentTime)
+        {
+            #ifdef KC_VERBOSE
+            printf("get_service_account_access_token_new: Cached token is good for %d seconds.\n", (int)(exp - currentTime));
+            #endif
+            
+            *accessToken = (char*)malloc(strlen(cachedToken) + 1);
+            strcpy(*accessToken, cachedToken);
+
+            result = true;
+        }
+        else
+        {
+            result = get_token_new(tokenEndpointUri, "access_token", payload, accessToken);
+            fseek(tokenCache, 0, SEEK_SET);
+            fputs(*accessToken, tokenCache);
+            int fd = fileno(tokenCache);
+            ftruncate(fd, strlen(*accessToken));
+
+            #ifdef KC_VERBOSE
+            printf("get_service_account_access_token_new: Cached token expired. %s token to put in cache.\n", result ? "Acquired" : "Failed to acquire");
+            #endif
+        }
+    }
     
-    bool result = get_token_new(tokenEndpointUri, "access_token", payload, accessToken);
+    fclose(tokenCache);
     free(payload);
 
     return result;

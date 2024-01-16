@@ -44,7 +44,7 @@ enum nss_status _nss_kcoidc_getpwnam_r(const char* username, struct passwd* resu
     if (get_assertion_new(config.derPath, config.clientId, tokenEndpointUri, &assertion))
     {
         char* accessTokenString = NULL;
-        if (get_service_account_access_token_new(tokenEndpointUri, config.clientId, assertion, &accessTokenString))
+        if (get_service_account_access_token_new(config.tokenCachePath, tokenEndpointUri, config.clientId, assertion, &accessTokenString))
         {
             enum oidc_client_status validationResult = validate_access_token(jwksUri, accessTokenString);
             if (validationResult == OIDC_OK)
@@ -114,7 +114,7 @@ enum nss_status _nss_kcoidc_getpwuid_r(uid_t uid, struct passwd* result, char* b
     if (get_assertion_new(config.derPath, config.clientId, tokenEndpointUri, &assertion))
     {
         char* accessTokenString = NULL;
-        if (get_service_account_access_token_new(tokenEndpointUri, config.clientId, assertion, &accessTokenString))
+        if (get_service_account_access_token_new(config.tokenCachePath, tokenEndpointUri, config.clientId, assertion, &accessTokenString))
         {
             enum oidc_client_status validationResult = validate_access_token(jwksUri, accessTokenString);
             if (validationResult == OIDC_OK)
