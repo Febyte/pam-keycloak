@@ -21,7 +21,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 
     // Get the user name
     const char* user;
-    int retval = pam_get_user(pamh, &user, "Username: ");
+    int retval = pam_get_user(pamh, &user, NULL);
     if (retval != PAM_SUCCESS)
     {
         return retval;
@@ -29,7 +29,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 
     // Get the password
     const char* password;
-    retval = pam_get_authtok(pamh, PAM_AUTHTOK, &password, "Password: ");
+    retval = pam_get_authtok(pamh, PAM_AUTHTOK, &password, NULL);
     if (retval != PAM_SUCCESS)
     {
         return retval;

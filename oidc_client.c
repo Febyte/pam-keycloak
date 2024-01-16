@@ -612,6 +612,14 @@ bool get_user_representation_by_username_new(const char* userEndpointUri, const 
         // Parse Token
 
         struct json_object* tokenRoot = json_tokener_parse(chunk.response);
+        uint32_t userCount = json_object_array_length(tokenRoot);
+        if (userCount != 1)
+        {
+            json_object_put(tokenRoot);
+            curl_easy_cleanup(curl);
+            return false;
+        }
+
         struct json_object* userRepresentationObj = json_object_array_get_idx(tokenRoot, 0);
 
         get_user_representation_from_json_new(uidMapperPath, userRepresentationObj, user);
