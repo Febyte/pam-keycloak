@@ -8,7 +8,6 @@
 
 #include "base64util.h"
 #include "oidc_client.h"
-#include "uidmapper.h"
 
 void global_init()
 {
@@ -419,7 +418,7 @@ enum oidc_client_status validate_access_token(const char* jwksUri, const char* a
     return OIDC_INVALID_SIGNATURE;
 }
 
-enum oidc_client_status get_validated_id_token_new(const char* jwksUri, const char* uidMapperPath, const char* idTokenBase64Url, struct user_representation* tokenOut)
+enum oidc_client_status get_validated_id_token_new(const char* jwksUri, const char* idTokenBase64Url, struct user_representation* tokenOut)
 {
     //
     // Parse the id_token.
@@ -461,9 +460,21 @@ enum oidc_client_status get_validated_id_token_new(const char* jwksUri, const ch
     uuid_t sub = {};
     if (!uuid_parse(subString, sub))
     {
-        uuid_copy(tokenOut->subject, sub);
+        // UID
+        {
+            struct json_object* idObj = json_object_object_get(root, "uid");
+            const char* idStr = json_object_get_string(idObj);
+            uid_t uid = (uid_t)atol(idStr);
+            tokenOut->userId = uid;
+        }
 
-        map_uuid_to_uid(uidMapperPath, sub, &tokenOut->userId);
+        // GID
+        {
+            struct json_object* idObj = json_object_object_get(root, "gid");
+            const char* idStr = json_object_get_string(idObj);
+            gid_t gid = (gid_t)atol(idStr);
+            tokenOut->groupId = gid;
+        }
 
         struct json_object* userNameObj = json_object_object_get(root, "preferred_username");
         uint32_t userNameLength = json_object_get_string_len(userNameObj);
@@ -519,17 +530,13 @@ enum oidc_client_status get_validated_id_token_new(const char* jwksUri, const ch
     return false;
 }
 
-void get_user_representation_from_json_new(const char* uidMapperPath, struct json_object* userRepresentationObj, struct user_representation* user)
+bool get_user_representation_from_json_new(struct json_object* userRepresentationObj, struct user_representation* user)
 {
-    // User IDs
+    // User GUID
     {
         struct json_object* userIdObject = json_object_object_get(userRepresentationObj, "id");
         const char* userIdString = json_object_get_string(userIdObject);
         uuid_parse(userIdString, user->subject);
-
-        uuid_t userId = {};
-        uuid_parse(userIdString, userId);
-        map_uuid_to_uid(uidMapperPath, userId, &user->userId);
     }
 
     // User Name
@@ -555,27 +562,63 @@ void get_user_representation_from_json_new(const char* uidMapperPath, struct jso
         sprintf((char*)user->displayName, "%s %s", firstNameStr, lastNameStr);
     }
 
-    // Home Path
+    // Attributes
     {
         struct json_object* attributesObj = json_object_object_get(userRepresentationObj, "attributes");
-        struct json_object* homeArrayObj = json_object_object_get(attributesObj, "home");
-        uint32_t homeArrayLength = json_object_array_length(homeArrayObj);
-        if (homeArrayLength != 1)
+
+        // UID
         {
-            user->homePath = NULL;
+            struct json_object* idArrayObj = json_object_object_get(attributesObj, "uid");
+            uint32_t idArrayLength = json_object_array_length(idArrayObj);
+            if (idArrayLength != 1)
+            {
+                return false;
+            }
+
+            struct json_object* idObj = json_object_array_get_idx(idArrayObj, 0);
+            const char* idStr = json_object_get_string(idObj);
+            uid_t uid = (uid_t)atol(idStr);
+            user->userId = uid;
         }
-        else
+
+        // GID
         {
-            struct json_object* homeObj = json_object_array_get_idx(homeArrayObj, 0);
-            const char* homeStr = json_object_get_string(homeObj);
-            int32_t homeLength = json_object_get_string_len(homeObj);
-            user->homePath = (char*)malloc(homeLength + 1);
-            strcpy((char*)user->homePath, homeStr);
+            struct json_object* idArrayObj = json_object_object_get(attributesObj, "gid");
+            uint32_t idArrayLength = json_object_array_length(idArrayObj);
+            if (idArrayLength != 1)
+            {
+                return false;
+            }
+
+            struct json_object* idObj = json_object_array_get_idx(idArrayObj, 0);
+            const char* idStr = json_object_get_string(idObj);
+            gid_t gid = (gid_t)atol(idStr);
+            user->groupId = gid;
+        }
+
+        // Home Path
+        {
+            struct json_object* homeArrayObj = json_object_object_get(attributesObj, "home");
+            uint32_t homeArrayLength = json_object_array_length(homeArrayObj);
+            if (homeArrayLength != 1)
+            {
+                user->homePath = NULL;
+            }
+            else
+            {
+                struct json_object* homeObj = json_object_array_get_idx(homeArrayObj, 0);
+                const char* homeStr = json_object_get_string(homeObj);
+                int32_t homeLength = json_object_get_string_len(homeObj);
+                user->homePath = (char*)malloc(homeLength + 1);
+                strcpy((char*)user->homePath, homeStr);
+            }
         }
     }
+
+    return true;
 }
 
-bool get_user_representation_by_id_new(const char* userEndpointUri, const char* uidMapperPath, const char* accessToken, uuid_t userId, struct user_representation* user)
+bool get_user_representation_by_id_new(const char* userEndpointUri, const char* accessToken, uid_t userId, struct user_representation* user)
 {
     CURL* curl = curl_easy_init();
     if(curl == NULL)
@@ -583,12 +626,11 @@ bool get_user_representation_by_id_new(const char* userEndpointUri, const char* 
         return false;
     }
 
-    char userIdString[37];
-    uuid_unparse(userId, userIdString);
-
-    // Allocate room for {userEndpointUri}+/{guid}
-    char* userQueryUri = (char*)malloc(strlen(userEndpointUri) + 38);
-    sprintf(userQueryUri, "%s/%s", userEndpointUri, userIdString);
+    // Allocate room for {userEndpointUri}?exact=true&q=uid:{uid}
+    // strlen("?exact=true&q=uid:") = 18
+    // Max length of the UID string is 10 characters
+    char* userQueryUri = (char*)malloc(strlen(userEndpointUri) + 29);
+    sprintf(userQueryUri, "%s?exact=true&q=uid:%u", userEndpointUri, userId);
 
     curl_easy_setopt(curl, CURLOPT_URL, userQueryUri);
     
@@ -621,20 +663,29 @@ bool get_user_representation_by_id_new(const char* userEndpointUri, const char* 
         // Parse Token
 
         struct json_object* tokenRoot = json_tokener_parse(chunk.response);
+        uint32_t userCount = json_object_array_length(tokenRoot);
+        if (userCount != 1)
+        {
+            json_object_put(tokenRoot);
+            curl_easy_cleanup(curl);
+            return false;
+        }
 
-        get_user_representation_from_json_new(uidMapperPath, tokenRoot, user);
+        struct json_object* userRepresentationObj = json_object_array_get_idx(tokenRoot, 0);
+
+        bool userRepStatus = get_user_representation_from_json_new(userRepresentationObj, user);
 
         json_object_put(tokenRoot);
 
         curl_easy_cleanup(curl);
 
-        return true;
+        return userRepStatus;
     }
 
     return false;
 }
 
-bool get_user_representation_by_username_new(const char* userEndpointUri, const char* uidMapperPath, const char* accessToken, const char* userName, struct user_representation* user)
+bool get_user_representation_by_username_new(const char* userEndpointUri, const char* accessToken, const char* userName, struct user_representation* user)
 {
     CURL* curl = curl_easy_init();
     if(curl == NULL)
@@ -687,13 +738,13 @@ bool get_user_representation_by_username_new(const char* userEndpointUri, const 
 
         struct json_object* userRepresentationObj = json_object_array_get_idx(tokenRoot, 0);
 
-        get_user_representation_from_json_new(uidMapperPath, userRepresentationObj, user);
+        bool userRepStatus = get_user_representation_from_json_new(userRepresentationObj, user);
 
         json_object_put(tokenRoot);
 
         curl_easy_cleanup(curl);
 
-        return true;
+        return userRepStatus;
     }
 
     return false;

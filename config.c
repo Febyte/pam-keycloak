@@ -12,7 +12,8 @@ bool read_config(const char* path, struct config* configOut)
         return false;
     }
 
-    char line[1024] = {};
+    // PATH_MAX + Length of longest property
+    char line[PATH_MAX + 17] = {};
     while (!feof(config))
     {
         fscanf(config, "%s\n", line);
@@ -20,11 +21,7 @@ bool read_config(const char* path, struct config* configOut)
         const char* key = strtok(line, "=");
         const char* value = strtok(NULL, "=");
 
-        if (!strcmp(key, "map_path"))
-        {
-            strcpy(configOut->mapPath, value);
-        }
-        else if (!strcmp(key, "der_path"))
+        if (!strcmp(key, "der_path"))
         {
             strcpy(configOut->derPath, value);
         }

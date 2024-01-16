@@ -6,7 +6,6 @@
 #include "assertion.h"
 #include "config.h"
 #include "oidc_client.h"
-#include "uidmapper.h"
 
 #include <nss.h>
 
@@ -20,6 +19,33 @@ enum nss_status _nss_kcoidc_setpwent()
 enum nss_status _nss_kcoidc_endpwent()
 {
     return NSS_STATUS_SUCCESS;
+}
+
+void populate_passwd(struct user_representation* user, struct passwd* result, char* buffer)
+{
+    uintptr_t bufPos = (uintptr_t)buffer;
+
+    result->pw_name = (char*)bufPos;
+    strcpy(result->pw_name, user->userName);
+    bufPos += strlen(user->userName) + 1;
+
+    result->pw_passwd = (char*)bufPos;
+    result->pw_passwd[0] = '*'; result->pw_passwd[1] = '\0';
+    bufPos += 2;
+
+    result->pw_uid = user->userId;
+    result->pw_gid = user->groupId;
+
+    result->pw_gecos = (char*)bufPos;
+    strcpy(result->pw_gecos, user->displayName);
+    bufPos += strlen(user->displayName) + 1;
+
+    result->pw_dir = (char*)bufPos;
+    strcpy(result->pw_dir, user->homePath);
+    bufPos += strlen(user->homePath) + 1;
+
+    result->pw_shell = (char*)bufPos;
+    strcpy(result->pw_shell, "/usr/bin/bash");
 }
 
 enum nss_status _nss_kcoidc_getpwnam_r(const char* username, struct passwd* result, char* buffer, size_t buflen, int* errnop)
@@ -50,31 +76,9 @@ enum nss_status _nss_kcoidc_getpwnam_r(const char* username, struct passwd* resu
             if (validationResult == OIDC_OK)
             {
                 struct user_representation user = {};
-                if (get_user_representation_by_username_new(kcUsersEndpointUri, config.mapPath, accessTokenString, username, &user))
+                if (get_user_representation_by_username_new(kcUsersEndpointUri, accessTokenString, username, &user))
                 {
-                    uintptr_t bufPos = (uintptr_t)buffer;
-
-                    result->pw_name = (char*)bufPos;
-                    strcpy(result->pw_name, user.userName);
-                    bufPos += strlen(user.userName) + 1;
-
-                    result->pw_passwd = (char*)bufPos;
-                    result->pw_passwd[0] = '*'; result->pw_passwd[1] = '\0';
-                    bufPos += 2;
-
-                    result->pw_uid = user.userId;
-                    result->pw_gid = user.groupId;
-
-                    result->pw_gecos = (char*)bufPos;
-                    strcpy(result->pw_gecos, user.displayName);
-                    bufPos += strlen(user.displayName) + 1;
-
-                    result->pw_dir = (char*)bufPos;
-                    strcpy(result->pw_dir, user.homePath);
-                    bufPos += strlen(user.homePath) + 1;
-
-                    result->pw_shell = (char*)bufPos;
-                    strcpy(result->pw_shell, "/bin/bash");
+                    populate_passwd(&user, result, buffer);
 
                     id_token_free(user);
 
@@ -119,41 +123,15 @@ enum nss_status _nss_kcoidc_getpwuid_r(uid_t uid, struct passwd* result, char* b
             enum oidc_client_status validationResult = validate_access_token(jwksUri, accessTokenString);
             if (validationResult == OIDC_OK)
             {
-                uuid_t testUuid = {};
-                if (map_uid_to_uuid(config.mapPath, uid, testUuid))
+                struct user_representation user = {};
+                if (get_user_representation_by_id_new(kcUsersEndpointUri, accessTokenString, uid, &user))
                 {
-                    struct user_representation user = {};
-                    if (get_user_representation_by_id_new(kcUsersEndpointUri, config.mapPath, accessTokenString, testUuid, &user))
-                    {
-                        uintptr_t bufPos = (uintptr_t)buffer;
+                    populate_passwd(&user, result, buffer);
 
-                        result->pw_name = (char*)bufPos;
-                        strcpy(result->pw_name, user.userName);
-                        bufPos += strlen(user.userName) + 1;
+                    id_token_free(user);
 
-                        result->pw_passwd = (char*)bufPos;
-                        result->pw_passwd[0] = '*'; result->pw_passwd[1] = '\0';
-                        bufPos += 2;
-
-                        result->pw_uid = user.userId;
-                        result->pw_gid = user.groupId;
-
-                        result->pw_gecos = (char*)bufPos;
-                        strcpy(result->pw_gecos, user.displayName);
-                        bufPos += strlen(user.displayName) + 1;
-
-                        result->pw_dir = (char*)bufPos;
-                        strcpy(result->pw_dir, user.homePath);
-                        bufPos += strlen(user.homePath) + 1;
-
-                        result->pw_shell = (char*)bufPos;
-                        strcpy(result->pw_shell, "/bin/bash");
-
-                        id_token_free(user);
-
-                        *errnop = NSS_STATUS_SUCCESS;
-                        return NSS_STATUS_SUCCESS;
-                    }
+                    *errnop = NSS_STATUS_SUCCESS;
+                    return NSS_STATUS_SUCCESS;
                 }
             }
 

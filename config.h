@@ -1,10 +1,11 @@
 #include <stdbool.h>
 
+#include <linux/limits.h>
+
 struct config
 {
-    char mapPath[1024];
-    char derPath[1024];
-    char tokenCachePath[1024];
+    char derPath[PATH_MAX];
+    char tokenCachePath[PATH_MAX];
     char kcBaseUri[1024];
     char realm[512];
     char clientId[512];

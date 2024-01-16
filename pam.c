@@ -64,7 +64,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
             // Validate Token
 
             struct user_representation idToken = {};
-            if (get_validated_id_token_new(jwksUri, config.mapPath, idTokenString, &idToken))
+            if (get_validated_id_token_new(jwksUri, idTokenString, &idToken))
             {
                 id_token_free(idToken);
 
