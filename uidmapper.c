@@ -23,8 +23,8 @@ bool map_uuid_to_uid(const char* mapperPath, uuid_t uuid, uid_t* uidOut)
         return false;
     }
 
-    // Change permissions to 600.
-    fchmod(fileno(mappingFile), S_IRUSR | S_IWUSR);
+    // Change permissions to 644.
+    fchmod(fileno(mappingFile), S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 
     // JAS: NOTE: POSIX does not specify what the initial position will be in "a+" mode. Seek to the beginning.
     fseek(mappingFile, 0, SEEK_SET);

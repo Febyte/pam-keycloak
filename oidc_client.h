@@ -6,31 +6,46 @@
 
 #include <openssl/evp.h>
 
-struct id_token
+struct user_representation
 {
     const char* userName;
     uuid_t subject;
+    uid_t userId;
     gid_t groupId; // JAS: TODO: Implement this!
     const char* displayName;
     const char* homePath;
+    //const char* shellPath; // JAS: TODO: Implement this!
+};
+
+enum oidc_client_status
+{
+    OIDC_UNSPECIFIED_ERROR = 0,
+    OIDC_OK = 1,
+    OIDC_HTTP_INIT_FAILURE,
+    OIDC_HTTP_REQUEST_FAILURE,
+    OIDC_JWK_NOT_FOUND,
+    OIDC_UNSUPPORTED_ALGORITHM,
+    OIDC_INVALID_SIGNATURE
 };
 
 void global_init();
 
-bool get_oidc_uris(const char* oidcConfigUri, char** tokenEndpointUri, char** jwksUri);
+enum oidc_client_status get_oidc_uris(const char* oidcConfigUri, char** tokenEndpointUri, char** jwksUri);
 
-bool get_oidc_rs256_key(const char* jwksUri, const char* kid, EVP_PKEY** publicKey);
+enum oidc_client_status get_oidc_rs256_key(const char* jwksUri, const char* kid, EVP_PKEY** publicKey);
 
 bool get_service_account_access_token_new(const char* tokenEndpointUri, const char* clientId, const char* assertion, char** accessToken);
 
 bool get_ropc_id_token_new(const char* tokenEndpointUri, const char* clientId, const char* assertion, const char* username, const char* password, char** idToken);
 
-bool validate_access_token(const char* jwksUri, const char* accessTokenBase64Url);
+enum oidc_client_status validate_access_token(const char* jwksUri, const char* accessTokenBase64Url);
 
-bool get_validated_id_token_new(const char* jwksUri, const char* idTokenBase64Url, struct id_token* tokenOut);
+enum oidc_client_status get_validated_id_token_new(const char* jwksUri, const char* uidMapperPath, const char* idTokenBase64Url, struct user_representation* tokenOut);
 
-bool get_username_by_id_new(const char* userEndpointUri, const char* accessToken, uuid_t userId, char** userNameOut);
+bool get_user_representation_by_id_new(const char* userEndpointUri, const char* uidMapperPath, const char* accessToken, uuid_t userId, struct user_representation* user);
 
-void id_token_free(struct id_token token);
+bool get_user_representation_by_username_new(const char* userEndpointUri, const char* uidMapperPath, const char* accessToken, const char* userName, struct user_representation* user);
+
+void id_token_free(struct user_representation token);
 
 void global_dispose();

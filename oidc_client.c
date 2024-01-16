@@ -4,9 +4,9 @@
 #include <json-c/json.h>
 #include <openssl/param_build.h>
 
-#include "oidc_client.h"
-
 #include "base64util.h"
+#include "oidc_client.h"
+#include "uidmapper.h"
 
 void global_init()
 {
@@ -38,12 +38,12 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata)
     return realsize;
 }
 
-bool get_oidc_uris(const char* oidcConfigUri, char** tokenEndpointUri, char** jwksUri)
+enum oidc_client_status get_oidc_uris(const char* oidcConfigUri, char** tokenEndpointUri, char** jwksUri)
 {
     CURL* curl = curl_easy_init();
     if(curl == NULL)
     {
-        return false;
+        return OIDC_HTTP_INIT_FAILURE;
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, oidcConfigUri);
@@ -55,7 +55,7 @@ bool get_oidc_uris(const char* oidcConfigUri, char** tokenEndpointUri, char** jw
     CURLcode res = curl_easy_perform(curl);
     if(res != CURLE_OK)
     {
-        return false;
+        return OIDC_HTTP_REQUEST_FAILURE;
     }
 
     struct json_object* root = json_tokener_parse(chunk.response);
@@ -68,7 +68,7 @@ bool get_oidc_uris(const char* oidcConfigUri, char** tokenEndpointUri, char** jw
 
     curl_easy_cleanup(curl);
 
-    return true;
+    return OIDC_OK;
 }
 
 bool get_rsa_public_key_new(const char* nStr, const char* eStr, EVP_PKEY** publicKey)
@@ -111,12 +111,12 @@ bool get_rsa_public_key_new(const char* nStr, const char* eStr, EVP_PKEY** publi
     return false;
 }
 
-bool get_oidc_rs256_key(const char* jwksUri, const char* kid, EVP_PKEY** publicKey)
+enum oidc_client_status get_oidc_rs256_key(const char* jwksUri, const char* kid, EVP_PKEY** publicKey)
 {
     CURL* curl = curl_easy_init();
     if(curl == NULL)
     {
-        return false;
+        return OIDC_HTTP_INIT_FAILURE;
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, jwksUri);
@@ -128,14 +128,14 @@ bool get_oidc_rs256_key(const char* jwksUri, const char* kid, EVP_PKEY** publicK
     CURLcode res = curl_easy_perform(curl);
     if(res != CURLE_OK)
     {
-        return false;
+        return OIDC_HTTP_REQUEST_FAILURE;
     }
 
     struct json_object* root = json_tokener_parse(chunk.response);
     struct json_object* keysObj = json_object_object_get(root, "keys");
     size_t keyCount = json_object_array_length(keysObj);
 
-    bool foundKid = false;
+    bool foundKid = OIDC_JWK_NOT_FOUND;
     for (size_t i = 0; i < keyCount; i++)
     {
         struct json_object* curKey = json_object_array_get_idx(keysObj, i);
@@ -162,19 +162,7 @@ bool get_oidc_rs256_key(const char* jwksUri, const char* kid, EVP_PKEY** publicK
 
             get_rsa_public_key_new(nStr, eStr, publicKey);
 
-            // Debug
-            #if 0
-                BIO* bio = BIO_new(BIO_s_mem());
-                if (EVP_PKEY_print_public(bio, *publicKey, 0, NULL) > 0)
-                {
-                    char* pem = NULL;
-                    long len = BIO_get_mem_data(bio, &pem);
-                    fwrite(pem, 1, len, stdout);
-                }
-                BIO_free(bio);
-            #endif
-
-            foundKid = true;
+            foundKid = OIDC_OK;
             break;
         }
     }
@@ -220,8 +208,8 @@ bool get_token_new(const char* tokenEndpointUri, const char* tokenField, const c
     const char* tokenStr = json_object_get_string(tokenObject);
     int tokenLength = json_object_get_string_len(tokenObject);
 
-    *token = (char*)malloc(tokenLength);
-    memcpy(*token, tokenStr, tokenLength);
+    *token = (char*)malloc(tokenLength + 1);
+    strcpy(*token, tokenStr);
 
     json_object_put(tokenRoot);
 
@@ -252,7 +240,7 @@ bool get_ropc_id_token_new(const char* tokenEndpointUri, const char* clientId, c
     return result;
 }
 
-bool get_public_key_from_jwt_new(const char* jwksUri, const char* jwtHeaderBase64UrlBin, int length, EVP_PKEY** publicKey)
+enum oidc_client_status get_public_key_from_jwt_new(const char* jwksUri, const char* jwtHeaderBase64UrlBin, int length, EVP_PKEY** publicKey)
 {
     char* idTokenHeaderJson = base64urlbin_to_string_new(jwtHeaderBase64UrlBin, length);
     struct json_object* idTokenHeaderRoot = json_tokener_parse(idTokenHeaderJson);
@@ -263,13 +251,13 @@ bool get_public_key_from_jwt_new(const char* jwksUri, const char* jwtHeaderBase6
     // JAS: TODO: Add support for other algorithms.
     if (strcmp(alg, "RS256"))
     {
-        return false;
+        return OIDC_UNSUPPORTED_ALGORITHM;
     }
 
     struct json_object* kidObj = json_object_object_get(idTokenHeaderRoot, "kid");
     const char* kid = json_object_get_string(kidObj);
 
-    bool getPublicKeyResult = get_oidc_rs256_key(jwksUri, kid, publicKey);
+    enum oidc_client_status getPublicKeyResult = get_oidc_rs256_key(jwksUri, kid, publicKey);
     
     json_object_put(idTokenHeaderRoot);
     free(idTokenHeaderJson);
@@ -280,7 +268,7 @@ bool get_public_key_from_jwt_new(const char* jwksUri, const char* jwtHeaderBase6
         return false;
     }
 
-    return true;
+    return OIDC_OK;
 }
 
 bool validate_signature(const char* idTokenBase64UrlBin, int messageLength, const char* signatureBase64UrlBin, int signatureLength, EVP_PKEY* publicKey)
@@ -315,7 +303,7 @@ bool validate_signature(const char* idTokenBase64UrlBin, int messageLength, cons
     return verificationResult;
 }
 
-bool validate_access_token(const char* jwksUri, const char* accessTokenBase64Url)
+enum oidc_client_status validate_access_token(const char* jwksUri, const char* accessTokenBase64Url)
 {
     //
     // Parse the Access Token.
@@ -338,14 +326,28 @@ bool validate_access_token(const char* jwksUri, const char* accessTokenBase64Url
         return false;
     }
 
+    #ifdef KC_VERBOSE
+    printf("validate_access_token: JWKs URI: %s\n", jwksUri);
+    printf("validate_access_token: Access Token: %s\n", accessTokenBase64Url);
+    #endif
+
     // Validate the signature against the public key.
     bool validationStatus = validate_signature(accessTokenBase64Url, tokenHeaderLength + tokenPayloadLength + 1, (const char*)tokenSignatureStart, tokenSignatureLength, publicKey);
     EVP_PKEY_free(publicKey);
 
-    return validationStatus;
+    #ifdef KC_VERBOSE
+    printf(validationStatus ? "validate_access_token: Validation successful.\n" : "validate_access_token: Validation failed.\n");
+    #endif
+
+    if (validationStatus)
+    {
+        return OIDC_OK;
+    }
+
+    return OIDC_INVALID_SIGNATURE;
 }
 
-bool get_validated_id_token_new(const char* jwksUri, const char* idTokenBase64Url, struct id_token* tokenOut)
+enum oidc_client_status get_validated_id_token_new(const char* jwksUri, const char* uidMapperPath, const char* idTokenBase64Url, struct user_representation* tokenOut)
 {
     //
     // Parse the id_token.
@@ -375,7 +377,7 @@ bool get_validated_id_token_new(const char* jwksUri, const char* idTokenBase64Ur
     EVP_PKEY_free(publicKey);
     if (!validationStatus)
     {
-        return false;
+        return OIDC_INVALID_SIGNATURE;
     }
 
     char* idTokenPayloadJson = base64urlbin_to_string_new((const char*)tokenPayloadStart, tokenPayloadLength);
@@ -388,6 +390,8 @@ bool get_validated_id_token_new(const char* jwksUri, const char* idTokenBase64Ur
     if (!uuid_parse(subString, sub))
     {
         uuid_copy(tokenOut->subject, sub);
+
+        map_uuid_to_uid(uidMapperPath, sub, &tokenOut->userId);
 
         struct json_object* userNameObj = json_object_object_get(root, "preferred_username");
         uint32_t userNameLength = json_object_get_string_len(userNameObj);
@@ -419,7 +423,10 @@ bool get_validated_id_token_new(const char* jwksUri, const char* idTokenBase64Ur
                     json_object_put(root);
                     free(idTokenPayloadJson);
 
-                    return true;
+                    if (validationStatus)
+                    {
+                        return OIDC_OK;
+                    }
                 }
                 else
                 {
@@ -440,7 +447,63 @@ bool get_validated_id_token_new(const char* jwksUri, const char* idTokenBase64Ur
     return false;
 }
 
-bool get_username_by_id_new(const char* userEndpointUri, const char* accessToken, uuid_t userId, char** userNameOut)
+void get_user_representation_from_json_new(const char* uidMapperPath, struct json_object* userRepresentationObj, struct user_representation* user)
+{
+    // User IDs
+    {
+        struct json_object* userIdObject = json_object_object_get(userRepresentationObj, "id");
+        const char* userIdString = json_object_get_string(userIdObject);
+        uuid_parse(userIdString, user->subject);
+
+        uuid_t userId = {};
+        uuid_parse(userIdString, userId);
+        map_uuid_to_uid(uidMapperPath, userId, &user->userId);
+    }
+
+    // User Name
+    {
+        struct json_object* userNameObject = json_object_object_get(userRepresentationObj, "username");
+        const char* userNameStr = json_object_get_string(userNameObject);
+        int32_t userNameLength = json_object_get_string_len(userNameObject);
+        user->userName = (char*)malloc(userNameLength + 1);
+        strcpy((char*)user->userName, userNameStr);
+    }
+
+    // Display Name
+    {
+        struct json_object* firstNameObject = json_object_object_get(userRepresentationObj, "firstName");
+        const char* firstNameStr = json_object_get_string(firstNameObject);
+        int32_t firstNameLength = json_object_get_string_len(firstNameObject);
+
+        struct json_object* lastNameObject = json_object_object_get(userRepresentationObj, "lastName");
+        const char* lastNameStr = json_object_get_string(lastNameObject);
+        int32_t lastNameLength = json_object_get_string_len(lastNameObject);
+
+        user->displayName = (char*)malloc(firstNameLength + lastNameLength + 2);
+        sprintf((char*)user->displayName, "%s %s", firstNameStr, lastNameStr);
+    }
+
+    // Home Path
+    {
+        struct json_object* attributesObj = json_object_object_get(userRepresentationObj, "attributes");
+        struct json_object* homeArrayObj = json_object_object_get(attributesObj, "home");
+        uint32_t homeArrayLength = json_object_array_length(homeArrayObj);
+        if (homeArrayLength != 1)
+        {
+            user->homePath = NULL;
+        }
+        else
+        {
+            struct json_object* homeObj = json_object_array_get_idx(homeArrayObj, 0);
+            const char* homeStr = json_object_get_string(homeObj);
+            int32_t homeLength = json_object_get_string_len(homeObj);
+            user->homePath = (char*)malloc(homeLength + 1);
+            strcpy((char*)user->homePath, homeStr);
+        }
+    }
+}
+
+bool get_user_representation_by_id_new(const char* userEndpointUri, const char* uidMapperPath, const char* accessToken, uuid_t userId, struct user_representation* user)
 {
     CURL* curl = curl_easy_init();
     if(curl == NULL)
@@ -486,13 +549,8 @@ bool get_username_by_id_new(const char* userEndpointUri, const char* accessToken
         // Parse Token
 
         struct json_object* tokenRoot = json_tokener_parse(chunk.response);
-        struct json_object* userNameObject = json_object_object_get(tokenRoot, "username");
 
-        const char* userNameStr = json_object_get_string(userNameObject);
-        int userNameLength = json_object_get_string_len(userNameObject);
-
-        *userNameOut = (char*)malloc(userNameLength + 1);
-        strcpy(*userNameOut, userNameStr);
+        get_user_representation_from_json_new(uidMapperPath, tokenRoot, user);
 
         json_object_put(tokenRoot);
 
@@ -504,11 +562,79 @@ bool get_username_by_id_new(const char* userEndpointUri, const char* accessToken
     return false;
 }
 
-void id_token_free(struct id_token token)
+bool get_user_representation_by_username_new(const char* userEndpointUri, const char* uidMapperPath, const char* accessToken, const char* userName, struct user_representation* user)
 {
-    free((void*)token.displayName);
-    free((void*)token.homePath);
-    free((void*)token.userName);
+    CURL* curl = curl_easy_init();
+    if(curl == NULL)
+    {
+        return false;
+    }
+
+    // Allocate room for {userEndpointUri}+?exact=true&username={userName}
+    char* userQueryUri = (char*)malloc(strlen(userEndpointUri) + strlen(userName) + 22);
+    sprintf(userQueryUri, "%s?exact=true&username=%s", userEndpointUri, userName);
+
+    curl_easy_setopt(curl, CURLOPT_URL, userQueryUri);
+    
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+
+    struct memory chunk = {};
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+
+    char authorizationHeader[2048];
+    sprintf(authorizationHeader, "Authorization: Bearer %s", accessToken);
+    struct curl_slist* headers = curl_slist_append(NULL, authorizationHeader);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    
+    CURLcode res = curl_easy_perform(curl);
+
+    int32_t responseCode = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
+
+    free(userQueryUri);
+
+    if (res != CURLE_OK)
+    {
+        curl_easy_cleanup(curl);
+        return false;
+    }
+
+    // HTTP OK
+    if (responseCode == 200)
+    {
+        // Parse Token
+
+        struct json_object* tokenRoot = json_tokener_parse(chunk.response);
+        struct json_object* userRepresentationObj = json_object_array_get_idx(tokenRoot, 0);
+
+        get_user_representation_from_json_new(uidMapperPath, userRepresentationObj, user);
+
+        json_object_put(tokenRoot);
+
+        curl_easy_cleanup(curl);
+
+        return true;
+    }
+
+    return false;
+}
+
+void id_token_free(struct user_representation token)
+{
+    if (token.displayName != NULL)
+    {
+        free((void*)token.displayName);
+    }
+
+    if (token.homePath != NULL)
+    {
+        free((void*)token.homePath);
+    }
+
+    if (token.userName != NULL)
+    {
+        free((void*)token.userName);
+    }
 }
 
 void global_dispose()
