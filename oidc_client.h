@@ -11,10 +11,10 @@ struct user_representation
     const char* userName;
     uuid_t subject;
     uid_t userId;
-    gid_t groupId; // JAS: TODO: Implement this!
+    gid_t groupId;
     const char* displayName;
     const char* homePath;
-    //const char* shellPath; // JAS: TODO: Implement this!
+    const char* shellPath;
 };
 
 enum oidc_client_status

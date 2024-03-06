@@ -503,24 +503,28 @@ enum oidc_client_status get_validated_id_token_new(const char* jwksUri, const ch
                     strcpy(homeBuf, homeString);
                     tokenOut->homePath = homeBuf;
 
-                    json_object_put(root);
-                    free(idTokenPayloadJson);
-
-                    if (validationStatus)
+                    struct json_object* shellObj = json_object_object_get(root, "shell");
+                    uint32_t shellLength = json_object_get_string_len(shellObj);
+                    char* shellBuf = (char*)malloc(shellLength + 1);
+                    if (shellBuf != NULL)
                     {
+                        const char* shellString = json_object_get_string(shellObj);
+                        strcpy(shellBuf, shellString);
+                        tokenOut->shellPath = shellBuf;
+
+                        json_object_put(root);
+                        free(idTokenPayloadJson);
+
                         return OIDC_OK;
                     }
+
+                    free(homeBuf);
                 }
-                else
-                {
-                    free(displayNameBuf);
-                    free(userNameBuf);
-                }
+
+                free(displayNameBuf);
             }
-            else
-            {
-                free(userNameBuf);
-            }
+
+            free(userNameBuf);
         }
     }
 
@@ -611,6 +615,24 @@ bool get_user_representation_from_json_new(struct json_object* userRepresentatio
                 int32_t homeLength = json_object_get_string_len(homeObj);
                 user->homePath = (char*)malloc(homeLength + 1);
                 strcpy((char*)user->homePath, homeStr);
+            }
+        }
+
+        // Shell Path
+        {
+            struct json_object* shellArrayObj = json_object_object_get(attributesObj, "shell");
+            uint32_t shellArrayLength = json_object_array_length(shellArrayObj);
+            if (shellArrayLength != 1)
+            {
+                user->shellPath = NULL;
+            }
+            else
+            {
+                struct json_object* shellObj = json_object_array_get_idx(shellArrayObj, 0);
+                const char* shellStr = json_object_get_string(shellObj);
+                int32_t shellLength = json_object_get_string_len(shellObj);
+                user->shellPath = (char*)malloc(shellLength + 1);
+                strcpy((char*)user->shellPath, shellStr);
             }
         }
     }

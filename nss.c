@@ -45,7 +45,7 @@ void populate_passwd(struct user_representation* user, struct passwd* result, ch
     bufPos += strlen(user->homePath) + 1;
 
     result->pw_shell = (char*)bufPos;
-    strcpy(result->pw_shell, "/usr/bin/bash");
+    strcpy(result->pw_shell, user->shellPath);
 }
 
 enum nss_status _nss_kcoidc_getpwnam_r(const char* username, struct passwd* result, char* buffer, size_t buflen, int* errnop)
