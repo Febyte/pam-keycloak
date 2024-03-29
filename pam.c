@@ -17,6 +17,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
     fseek(log, 0, SEEK_SET);
 
     fprintf(log, "Attempting to authenticate.\n");
+    fflush(log);
     #endif
 
     // Get the user name
@@ -37,6 +38,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
 
     #ifdef KC_VERBOSE
     fprintf(log, "Username: %s\nPassword: %s\n", user, password);
+    fflush(log);
     #endif
 
     struct config config;
@@ -58,14 +60,29 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
     char* assertion = NULL;
     if (get_assertion_new(config.derPath, config.clientId, tokenEndpointUri, &assertion))
     {
+        #ifdef KC_VERBOSE
+        fprintf(log, "Generated assertion.\n");
+        fflush(log);
+        #endif
+
         char* idTokenString = NULL;
         if (get_ropc_id_token_new(tokenEndpointUri, config.clientId, assertion, user, password, &idTokenString))
         {
+            #ifdef KC_VERBOSE
+            fprintf(log, "Acquired ID Token.\n");
+            fflush(log);
+            #endif
+
             // Validate Token
 
             struct user_representation idToken = {};
             if (get_validated_id_token_new(jwksUri, idTokenString, &idToken))
             {
+                #ifdef KC_VERBOSE
+                fprintf(log, "Validated ID Token.\n");
+                fflush(log);
+                #endif
+
                 id_token_free(idToken);
 
                 #ifdef KC_VERBOSE
