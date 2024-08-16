@@ -14,6 +14,14 @@ void global_init()
     curl_global_init(CURL_GLOBAL_ALL);
 }
 
+struct curl_slist* get_common_headers()
+{
+    struct curl_slist* headers = curl_slist_append(NULL, "User-Agent: OIDCClient/1.0");
+    headers = curl_slist_append(headers, "Accept: application/json");
+
+    return headers;
+}
+
 struct memory {
     char* response;
     size_t size;
@@ -52,6 +60,9 @@ enum oidc_client_status get_oidc_uris(const char* oidcConfigUri, char** tokenEnd
 
     struct memory chunk = {0};
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+
+    struct curl_slist* headers = get_common_headers();
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
     CURLcode res = curl_easy_perform(curl);
     if(res != CURLE_OK)
@@ -126,6 +137,9 @@ enum oidc_client_status get_oidc_rs256_key(const char* jwksUri, const char* kid,
     struct memory chunk = {};
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
 
+    struct curl_slist* headers = get_common_headers();
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
     CURLcode res = curl_easy_perform(curl);
     if(res != CURLE_OK)
     {
@@ -189,7 +203,8 @@ bool get_token_new(const char* tokenEndpointUri, const char* tokenField, const c
     struct memory chunk = {};
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
 
-    struct curl_slist* headers = curl_slist_append(NULL, "Content-Type: application/x-www-form-urlencoded");
+    struct curl_slist* headers = get_common_headers();
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
