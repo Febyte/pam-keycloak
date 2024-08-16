@@ -678,7 +678,8 @@ bool get_user_representation_by_id_new(const char* userEndpointUri, const char* 
 
     char authorizationHeader[2048];
     sprintf(authorizationHeader, "Authorization: Bearer %s", accessToken);
-    struct curl_slist* headers = curl_slist_append(NULL, authorizationHeader);
+    struct curl_slist* headers = get_common_headers();
+    headers = curl_slist_append(headers, authorizationHeader);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     
     CURLcode res = curl_easy_perform(curl);
@@ -743,7 +744,8 @@ bool get_user_representation_by_username_new(const char* userEndpointUri, const 
 
     char authorizationHeader[2048];
     sprintf(authorizationHeader, "Authorization: Bearer %s", accessToken);
-    struct curl_slist* headers = curl_slist_append(NULL, authorizationHeader);
+    struct curl_slist* headers = get_common_headers();
+    headers = curl_slist_append(headers, authorizationHeader);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     
     CURLcode res = curl_easy_perform(curl);
