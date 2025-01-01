@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "config.h"
 
@@ -12,6 +13,8 @@ bool read_config(const char* path, struct config* configOut)
         return false;
     }
 
+    configOut->shaBits = -1;
+
     // PATH_MAX + Length of longest property
     char line[PATH_MAX + 17] = {};
     while (!feof(config))
@@ -21,9 +24,14 @@ bool read_config(const char* path, struct config* configOut)
         const char* key = strtok(line, "=");
         const char* value = strtok(NULL, "=");
 
-        if (!strcmp(key, "der_path"))
+        if (!strcmp(key, "pem_path"))
         {
-            strcpy(configOut->derPath, value);
+            strcpy(configOut->pemPath, value);
+        }
+        else if (!strcmp(key, "sha_bits"))
+        {
+            int shaBits = atoi(value);
+            configOut->shaBits = shaBits;
         }
         else if (!strcmp(key, "token_cache_path"))
         {

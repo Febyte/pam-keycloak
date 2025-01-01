@@ -4,7 +4,8 @@
 
 struct config
 {
-    char derPath[PATH_MAX];
+    char pemPath[PATH_MAX];
+    int shaBits;
     char tokenCachePath[PATH_MAX];
     char kcBaseUri[256];
     char realm[256];

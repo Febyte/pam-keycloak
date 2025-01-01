@@ -58,7 +58,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t* pamh, int flags, int argc, cons
     //
 
     char* assertion = NULL;
-    if (get_assertion_new(config.derPath, config.clientId, tokenEndpointUri, &assertion))
+    if (get_assertion_new(config.pemPath, config.shaBits, config.clientId, tokenEndpointUri, &assertion))
     {
         #ifdef KC_VERBOSE
         fprintf(log, "Generated assertion.\n");
