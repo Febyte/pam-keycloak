@@ -3,6 +3,7 @@
 
 #include <openssl/err.h>
 #include <openssl/evp.h>
+#include <openssl/pem.h>
 #include <openssl/sha.h>
 
 #include <uuid/uuid.h>
@@ -11,37 +12,18 @@
 
 #include "base64util.h"
 
-bool get_der_new(const char* path, unsigned char** der, long* derLength)
+bool get_signature_sha_new(const char* pemPath, const char* message, int shaBits, unsigned char** signature, size_t* sigLength)
 {
-    FILE* derFile = fopen(path, "r");
-    if (derFile == NULL)
-    {
-        fprintf(stderr, "Could not open DER key!\n");
-        return false;
-    }
-
-    fseek(derFile, 0, SEEK_END);
-    *derLength = ftell(derFile);
-
-    fseek(derFile, 0, SEEK_SET);
-
-    *der = malloc(*derLength);
-    fread(*der, *derLength, 1, derFile);
-
-    fclose(derFile);
-
-    return true;
-}
-
-bool get_signature_sha_new(const unsigned char* der, long derLength, const char* message, int shaBits, unsigned char** signature, size_t* sigLength)
-{
-    EVP_PKEY* key = d2i_AutoPrivateKey(NULL, (const unsigned char**)&der, derLength);
+    FILE* pemFile = fopen(pemPath, "r");
+    EVP_PKEY* key = PEM_read_PrivateKey(pemFile, NULL, NULL, NULL);
     if (key == NULL)
     {
         unsigned long err = ERR_get_error();
         fprintf(stderr, "Could not read key (0x%lx)!\n", err);
         return false;
     }
+
+    fclose(pemFile);
 
     EVP_MD_CTX* mdContext = EVP_MD_CTX_new();
     if (mdContext == NULL)
@@ -101,6 +83,38 @@ bool get_signature_sha_new(const unsigned char* der, long derLength, const char*
         return false;
     }
 
+    // JAS: If we're using EC we need to convert the signature to IEEE P1363.
+    if (EVP_PKEY_get_id(key) == EVP_PKEY_EC)
+    {
+        // Parse the signature.
+        unsigned char* oldSig = *signature;
+        ECDSA_SIG* signatureObj = d2i_ECDSA_SIG(NULL, (const unsigned char**)signature, *sigLength);
+        if (!signatureObj) {
+            fprintf(stderr, "Failed to parse signature\n");
+            return false;
+        }
+
+        const BIGNUM *r, *s;
+        ECDSA_SIG_get0(signatureObj, &r, &s);
+
+        int rLength = BN_num_bytes(r);
+        int sLength = BN_num_bytes(s);
+        unsigned char* signatureP1363 = OPENSSL_malloc(rLength + sLength);
+        if (!signatureP1363)
+        {
+            fprintf(stderr, "Failed to allocate IEEE P1363 signature\n");
+        }
+
+        BN_bn2bin(r, signatureP1363);
+        BN_bn2bin(s, signatureP1363 + rLength);
+
+        OPENSSL_free(oldSig);
+        *signature = signatureP1363;
+        *sigLength = rLength + sLength;
+
+        ECDSA_SIG_free(signatureObj);
+    }
+
     EVP_MD_CTX_free(mdContext);
     EVP_PKEY_free(key);
 
@@ -109,7 +123,7 @@ bool get_signature_sha_new(const unsigned char* der, long derLength, const char*
 
 char* get_assertion_message_new(const char* clientId, const char* tokenEndpointUri)
 {
-    const char* header = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
+    const char* header = "{\"alg\":\"ES256\",\"typ\":\"JWT\"}";
     char* headerB64 = string_to_base64urlstring_new(header);
 
     uuid_t uuid;
@@ -139,23 +153,14 @@ char* get_assertion_message_new(const char* clientId, const char* tokenEndpointU
 
 bool get_assertion_new(const char* derPath, const char* clientId, const char* tokenEndpointUri, char** assertion)
 {
-    unsigned char* der = NULL;
-    long derLength;
-    if (!get_der_new(derPath, &der, &derLength))
-    {
-        return false;
-    }
-
     char* message = get_assertion_message_new(clientId, tokenEndpointUri);
 
     unsigned char* signature = NULL;
     size_t sigLength;
-    if (!get_signature_sha_new(der, derLength, message, 256, &signature, &sigLength))
+    if (!get_signature_sha_new(derPath, message, 256, &signature, &sigLength))
     {
         return false;
     }
-
-    free(der);
 
     char* signatureB64 = bin_to_base64urlstring_new(signature, sigLength);
 
