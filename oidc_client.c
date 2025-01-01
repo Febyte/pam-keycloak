@@ -256,7 +256,11 @@ bool get_service_account_access_token_new(const char* tokenCachePath, const char
     if (fgets(cachedToken, 4096, tokenCache) == NULL)
     {
         result = get_token_new(tokenEndpointUri, "access_token", payload, accessToken);
-        fputs(*accessToken, tokenCache);
+
+        if (result)
+        {
+            fputs(*accessToken, tokenCache);
+        }
 
         #ifdef KC_VERBOSE
         printf("get_service_account_access_token_new: Cache is empty. %s token to put in cache.\n", result ? "Acquired" : "Failed to acquire");
@@ -298,10 +302,13 @@ bool get_service_account_access_token_new(const char* tokenCachePath, const char
         else
         {
             result = get_token_new(tokenEndpointUri, "access_token", payload, accessToken);
-            fseek(tokenCache, 0, SEEK_SET);
-            fputs(*accessToken, tokenCache);
-            int fd = fileno(tokenCache);
-            ftruncate(fd, strlen(*accessToken));
+            if (result)
+            {
+                fseek(tokenCache, 0, SEEK_SET);
+                fputs(*accessToken, tokenCache);
+                int fd = fileno(tokenCache);
+                ftruncate(fd, strlen(*accessToken));
+            }
 
             #ifdef KC_VERBOSE
             printf("get_service_account_access_token_new: Cached token expired. %s token to put in cache.\n", result ? "Acquired" : "Failed to acquire");

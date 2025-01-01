@@ -3,7 +3,6 @@
 
 #include <openssl/err.h>
 #include <openssl/evp.h>
-#include <openssl/rsa.h>
 #include <openssl/sha.h>
 
 #include <uuid/uuid.h>
@@ -34,14 +33,9 @@ bool get_der_new(const char* path, unsigned char** der, long* derLength)
     return true;
 }
 
-void sha256_hash(const void* data, size_t dataLength, unsigned char* hash)
+bool get_signature_sha_new(const unsigned char* der, long derLength, const char* message, int shaBits, unsigned char** signature, size_t* sigLength)
 {
-    EVP_Digest(data, dataLength, hash, NULL, EVP_sha256(), NULL);
-}
-
-bool get_signature_sha256_new(const unsigned char* der, long derLength, const unsigned char* digest, unsigned char** signature, size_t* sigLength)
-{
-    EVP_PKEY* key = d2i_PrivateKey(EVP_PKEY_RSA, NULL, (const unsigned char**)&der, derLength);
+    EVP_PKEY* key = d2i_AutoPrivateKey(NULL, (const unsigned char**)&der, derLength);
     if (key == NULL)
     {
         unsigned long err = ERR_get_error();
@@ -49,21 +43,45 @@ bool get_signature_sha256_new(const unsigned char* der, long derLength, const un
         return false;
     }
 
-    // Create signing context.
-    EVP_PKEY_CTX* keyContext = EVP_PKEY_CTX_new_from_pkey(NULL, key, NULL);
-    if (keyContext == NULL)
+    EVP_MD_CTX* mdContext = EVP_MD_CTX_new();
+    if (mdContext == NULL)
     {
         fprintf(stderr, "Failed to create signing context\n");
         return false;
     }
 
-    // Initialize context for signing and set options.
-    EVP_PKEY_sign_init(keyContext);
-    EVP_PKEY_CTX_set_rsa_padding(keyContext, RSA_PKCS1_PADDING);
-    EVP_PKEY_CTX_set_signature_md(keyContext, EVP_sha256());
+    const EVP_MD* mdAlgorithm = NULL;
+    switch (shaBits)
+    {
+    case 256:
+        mdAlgorithm = EVP_sha256();
+        break;
+    case 384:
+        mdAlgorithm = EVP_sha384();
+        break;
+    case 512:
+        mdAlgorithm = EVP_sha512();
+        break;
+    default:
+        fprintf(stderr, "Invalid SHA bit length\n");
+        return false;
+    }
+
+    if (EVP_DigestSignInit(mdContext, NULL, mdAlgorithm, NULL, key) == 0)
+    {
+        fprintf(stderr, "Failed to initialize digest signing\n");
+        return false;
+    }
+
+    // Calculate digest.
+    if (EVP_DigestSignUpdate(mdContext, message, strlen(message)) == 0)
+    {
+        fprintf(stderr, "Failed to calculate digest\n");
+        return false;
+    }
 
     // Determine length of signature.
-    if (EVP_PKEY_sign(keyContext, NULL, sigLength, digest, SHA256_DIGEST_LENGTH) == 0)
+    if (EVP_DigestSignFinal(mdContext, NULL, sigLength) == 0)
     {
         fprintf(stderr, "Failed to get signature length\n");
         return false;
@@ -77,13 +95,13 @@ bool get_signature_sha256_new(const unsigned char* der, long derLength, const un
     }
 
     // Generate signature.
-    if (EVP_PKEY_sign(keyContext, *signature, sigLength, digest, SHA256_DIGEST_LENGTH) != 1)
+    if (EVP_DigestSignFinal(mdContext, *signature, sigLength) == 0)
     {
         fprintf(stderr, "Failed to sign\n");
         return false;
     }
 
-    EVP_PKEY_CTX_free(keyContext);
+    EVP_MD_CTX_free(mdContext);
     EVP_PKEY_free(key);
 
     return true;
@@ -129,13 +147,10 @@ bool get_assertion_new(const char* derPath, const char* clientId, const char* to
     }
 
     char* message = get_assertion_message_new(clientId, tokenEndpointUri);
-    
-    unsigned char digest[SHA256_DIGEST_LENGTH];
-    sha256_hash(message, strlen(message), digest);
-    
+
     unsigned char* signature = NULL;
     size_t sigLength;
-    if (!get_signature_sha256_new(der, derLength, digest, &signature, &sigLength))
+    if (!get_signature_sha_new(der, derLength, message, 256, &signature, &sigLength))
     {
         return false;
     }
